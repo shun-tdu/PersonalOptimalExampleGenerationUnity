@@ -66,3 +66,6 @@ Thumbs.db
 
 # Crashlytics（クラッシュレポートツール）
 crashlytics-build.properties
+
+#外部アセットを無視
+Assets/Honeti/
