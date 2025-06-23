@@ -1,0 +1,68 @@
+# このファイルは https://github.com/github/gitignore/blob/main/Unity.gitignore を元にしています。
+
+# Unityが自動生成するフォルダ・ファイル #
+# ================================== #
+
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+
+# Unity 2021.2から導入されたメモリ使用量レポート
+/[Mm]emory[Cc]aptures/
+
+# Unity 2021.3から導入されたクエリキャッシュ
+/[Qq]uery[Cc]ache/
+
+# Visual Studio / Rider / VS CodeなどのIDE関連ファイル #
+# =================================================== #
+
+# Visual Studio
+.vs/
+*.sln
+*.csproj
+*.unityproj
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# Rider
+.idea/
+*.sln.DotSettings.user
+
+# VS Code
+.vscode/
+
+# macOS / Windows のシステムファイル #
+# ================================== #
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Icon?
+ehthumbs.db
+Thumbs.db
+
+# その他 #
+# ====== #
+
+# ビルド成果物
+*.apk
+*.aab
+*.unitypackage
+
+# Crashlytics（クラッシュレポートツール）
+crashlytics-build.properties
