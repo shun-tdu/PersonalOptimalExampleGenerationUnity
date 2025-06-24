@@ -56,7 +56,7 @@ namespace MyAssets.Scripts.Utility
             }
         }
 
-        protected void OnApplicationQuit()
+        protected virtual void OnApplicationQuit()
         {
             _isQuitting = true;
         }
