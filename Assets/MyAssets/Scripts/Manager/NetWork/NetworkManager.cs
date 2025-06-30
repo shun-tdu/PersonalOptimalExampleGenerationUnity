@@ -12,45 +12,47 @@ namespace MyAssets.Scripts.Manager.Network
     //Linuxから受信するデータの構造体
     public struct MovementData
     {
-        public float TimeStep;          //時刻
-        public float HandlePosX;        //ハンドルのx座標位置
-        public float HandlePosY;        //ハンドルのy座標位置
-        public float HandleVelX;        //ハンドルのx座標速度
-        public float HandleVelY;        //ハンドルのy座標速度
-        public float HandleAccX;        //ハンドルのx座標加速度
-        public float HandleAccY;        //ハンドルのy座標加速度
-        public float TargetStartPosX;   //ターゲットの開始地点x座標
-        public float TargetStartPosY;   //ターゲットの開始地点y座標
-        public float TargetEndPosX;     //ターゲットの終了地点x座標
-        public float TargetEndPosY;     //ターゲットの終了地点y座標
+        public float TimeStep; //時刻
+        public float HandlePosX; //ハンドルのx座標位置
+        public float HandlePosY; //ハンドルのy座標位置
+        public float HandleVelX; //ハンドルのx座標速度
+        public float HandleVelY; //ハンドルのy座標速度
+        public float HandleAccX; //ハンドルのx座標加速度
+        public float HandleAccY; //ハンドルのy座標加速度
+        public float TargetStartPosX; //ターゲットの開始地点x座標
+        public float TargetStartPosY; //ターゲットの開始地点y座標
+        public float TargetEndPosX; //ターゲットの終了地点x座標
+        public float TargetEndPosY; //ターゲットの終了地点y座標
+        public int IsTrialFinished; //試行が終了したかどうかのフラグ(0=継続中、1=終了)
     }
-    
+
 
     public class NetworkManager : Singleton<NetworkManager>
     {
         //--------Public Events--------//
         public event Action<MovementData> OnDataReceived;
 
-        
+
         //--------Publicプロパティ--------//
-        [Header("ネットワーク設定")] [SerializeField] private string liuxIpAddress = "192.168.1.10";
-        [SerializeField] private int udpReceivePort = 50001;
-        [SerializeField] private int tcpCommandPort = 50002;
-        
-        
+        [Header("ネットワーク設定")] [SerializeField] private string liuxIpAddress = "127.0.0.1";
+        [SerializeField] private int udpReceivePort = 20001;
+        [SerializeField] private int tcpCommandPort = 20002;
+
+
         //--------Privateプロパティ--------//
         private UdpClient _udpClient;
         private CancellationTokenSource _cancellationTokenSource;
         private Task _receiveTask;
 
-        
+
         //--------Unity Lifecycle Methods--------//
         protected override void Awake()
         {
             base.Awake();
+            DontDestroyOnLoad(this.gameObject);
         }
-        
-        
+
+
         //--------Public Methods--------//
         /// <summary>
         /// UDPデータの受信を開始
@@ -80,7 +82,7 @@ namespace MyAssets.Scripts.Manager.Network
             catch (Exception ex)
             {
                 Debug.LogError($"UDP受信の開始に失敗しました:{ex.Message}");
-                
+
                 //リソースをクリーンアップ
                 _udpClient?.Close();
                 _cancellationTokenSource?.Dispose();
@@ -117,16 +119,15 @@ namespace MyAssets.Scripts.Manager.Network
                 }
             }
         }
-    
-    
-        
+
+
         /// <summary>
         /// Linux PCにTCPコマンドを非同期で送信
         /// </summary>
         /// <param name="command">送信するコマンド文字列</param>
         public async Task SendCommandAsync(string command)
         {
-            if(string.IsNullOrEmpty(command))return;
+            if (string.IsNullOrEmpty(command)) return;
 
             try
             {
@@ -152,68 +153,77 @@ namespace MyAssets.Scripts.Manager.Network
                 Debug.LogError($"TCPコマンド送信エラー:{ex.Message}");
             }
         }
-        
+
         //--------Private Methods--------//
+
         /// <summary>
         /// UDPデータを受信し続けるバックグランドタスク
         /// </summary>
         private async Task ReceiveLoop(CancellationToken token)
         {
+            Debug.LogWarning("[NetworkManager] ReceiveLoop Task has STARTED. Now trying to open port...");
+
             //MOVEMENT_DATA構造体のサイズを計算
-            const int MOVEMENT_DATA_SIZE = sizeof(float) * 11;
+            const int MOVEMENT_DATA_SIZE = sizeof(float) * 11 + sizeof(int);
 
-            using (var udpClient = new UdpClient(udpReceivePort))
+
+            Debug.Log("[NetworkManager] Port opened. Waiting for data... (awaiting ReceiveAsync)");
+
+            while (!token.IsCancellationRequested)
             {
-                while (!token.IsCancellationRequested)
+                try
                 {
-                    try
+                    //データ受信を非同期処理で待機
+                    UdpReceiveResult result = await _udpClient.ReceiveAsync();
+
+                    Debug.Log($"[NetworkManager] Received {result.Buffer.Length} bytes.");
+
+                    //パース処理
+                    if (result.Buffer.Length < MOVEMENT_DATA_SIZE)
                     {
-                        //データ受信を非同期処理で待機
-                        UdpReceiveResult result = await _udpClient.ReceiveAsync();
-
-                        //パース処理
-                        if (result.Buffer.Length < MOVEMENT_DATA_SIZE)
-                        {
-                            Debug.LogWarning($"受信データサイズが不足しています:{result.Buffer.Length} bytes");
-                            continue;
-                        }
-
-                        MovementData data = new MovementData();
-                        int offset = 0;
-
-                        data.TimeStep = BitConverter.ToSingle(result.Buffer, offset);
-                        offset += sizeof(float);
-                        data.HandlePosX = BitConverter.ToSingle(result.Buffer, offset);
-                        offset += sizeof(float);
-                        data.HandlePosY = BitConverter.ToSingle(result.Buffer, offset);
-                        offset += sizeof(float);
-                        data.HandleVelX = BitConverter.ToSingle(result.Buffer, offset);
-                        offset += sizeof(float);
-                        data.HandleVelY = BitConverter.ToSingle(result.Buffer, offset);
-                        offset += sizeof(float);
-                        data.HandleAccX = BitConverter.ToSingle(result.Buffer, offset);
-                        offset += sizeof(float);
-                        data.HandleAccY = BitConverter.ToSingle(result.Buffer, offset);
-                        offset += sizeof(float);
-                        data.TargetStartPosX = BitConverter.ToSingle(result.Buffer, offset);
-                        offset += sizeof(float);
-                        data.TargetStartPosY = BitConverter.ToSingle(result.Buffer, offset);
-                        offset += sizeof(float);
-                        data.TargetEndPosX = BitConverter.ToSingle(result.Buffer, offset);
-                        offset += sizeof(float);
-                        data.TargetEndPosY = BitConverter.ToSingle(result.Buffer, offset);
-                        offset += sizeof(float);
-
-                        OnDataReceived?.Invoke(data);
+                        Debug.LogWarning($"受信データサイズが不足しています:{result.Buffer.Length} bytes");
+                        continue;
                     }
-                    catch (ObjectDisposedException)
-                    {
-                        break;
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.LogError($"UDP受信ループエラー: {ex.Message}");
-                    }
+
+                    MovementData data = new MovementData();
+                    int offset = 0;
+
+                    data.TimeStep = BitConverter.ToSingle(result.Buffer, offset);
+                    offset += sizeof(float);
+                    data.HandlePosX = BitConverter.ToSingle(result.Buffer, offset);
+                    offset += sizeof(float);
+                    data.HandlePosY = BitConverter.ToSingle(result.Buffer, offset);
+                    offset += sizeof(float);
+                    data.HandleVelX = BitConverter.ToSingle(result.Buffer, offset);
+                    offset += sizeof(float);
+                    data.HandleVelY = BitConverter.ToSingle(result.Buffer, offset);
+                    offset += sizeof(float);
+                    data.HandleAccX = BitConverter.ToSingle(result.Buffer, offset);
+                    offset += sizeof(float);
+                    data.HandleAccY = BitConverter.ToSingle(result.Buffer, offset);
+                    offset += sizeof(float);
+                    data.TargetStartPosX = BitConverter.ToSingle(result.Buffer, offset);
+                    offset += sizeof(float);
+                    data.TargetStartPosY = BitConverter.ToSingle(result.Buffer, offset);
+                    offset += sizeof(float);
+                    data.TargetEndPosX = BitConverter.ToSingle(result.Buffer, offset);
+                    offset += sizeof(float);
+                    data.TargetEndPosY = BitConverter.ToSingle(result.Buffer, offset);
+                    offset += sizeof(float);
+                    data.IsTrialFinished = BitConverter.ToInt32(result.Buffer, offset);
+
+
+                    Debug.Log($"[NetworkManager] Parsed IsTrialFinished flag: {data.IsTrialFinished}");
+
+                    OnDataReceived?.Invoke(data);
+                }
+                catch (ObjectDisposedException)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"UDP受信ループエラー: {ex.Message}");
                 }
             }
         }

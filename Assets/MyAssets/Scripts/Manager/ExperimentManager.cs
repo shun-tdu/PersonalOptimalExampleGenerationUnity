@@ -1,59 +1,63 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading.Tasks;
+
 using UnityEngine;
 
 using MyAssets.Scripts.Manager.Network;
 using MyAssets.Scripts.Utility;
 
-
 namespace MyAssets.Scripts.Manager
 {
     public enum ExperimentState
     {
-        Idle, // 初期状態・待機中
-        ReadyToStart, // 実験開始準備完了
-        TrialRunning, // 試行実行中
-        TrialFinished, // 試行終了後のフィードバック表示中
-        Resting, // ブロック間の休憩中
-        Finished, // 全ての実験が終了
-        Stopped // 緊急停止中
+        Idle,           // 初期状態・待機中
+        ReadyToStart,   // 実験開始準備完了
+        TrialRunning,   // 試行実行中
+        TrialFinished,  // 試行終了後のフィードバック表示中
+        Resting,        // ブロック間の休憩中
+        Finished,       // 全ての実験が終了
+        Stopped         // 緊急停止中
     }
 
     public class ExperimentManager : Singleton<ExperimentManager>
     {
-        [Header("Experiment Parameters")] [SerializeField]
-        private int totalBlocks = 4;
-
-        [SerializeField] private int trialsPerBlock = 30;
-        [SerializeField] private float restTimeSeconds = 30f;
-        [SerializeField] private float feedbackTimeSeconds = 1.5f;
-
-
-        //--------プロパティ--------//
-        public ExperimentState CurrentState { get; private set; } //現在の実験ステート
-        public int CurrentTrial { get; private set; } = 0; //現在の試行
-        public int CurrentBlock { get; private set; } = 0; //現在の実験ブロック
-        public string SubjectID { get; private set; } //被験者ID
+        [Header("Experiment Parameters")]
+        [SerializeField] private int totalBlocks = 4;               //全ブロック数        
+        [SerializeField] private int trialsPerBlock = 30;           //1ブロックあたりの試行数
+        [SerializeField] private float restTimeSeconds = 30f;       //ブロック間の休憩時間
+        [SerializeField] private float feedbackTimeSeconds = 1.5f;  //各試行の結果フィードバック時間
 
 
-        //--------他コンポーネントの内部参照--------//
+        //--------Public プロパティ--------//
+        public ExperimentState CurrentState { get; private set; }   //現在の実験ステート
+        public int CurrentTrial { get; private set; } = 0;          //現在の試行
+        public int CurrentBlock { get; private set; } = 0;          //現在の実験ブロック
+        public string SubjectID { get; private set; }               //被験者ID
+
+
+        //--------Privateプロパティ--------//
         private UIManager _uiManager;
-        private NetworkManager _networkManager;
         private DataLogger _dataLogger;
+        private NetworkManager _networkManager;
         private TaskCompletionSource<bool> _trialCompletionSource;
 
+        //--------Unity Lifecycle Methods--------//
+        
         protected override void Awake()
         {
             base.Awake();
             DontDestroyOnLoad(this.gameObject);
+            _uiManager = UIManager.Instance;
+            _dataLogger = DataLogger.Instance;
+            _networkManager = NetworkManager.Instance;
+            _networkManager.OnDataReceived += OnMovementDataReceived;
         }
 
         private async void Start()
         {
-            _networkManager = NetworkManager.Instance;
-            _networkManager.OnDataReceived += OnMovementDataReceived;
             await RunExperimentFlow();
         }
 
@@ -66,7 +70,8 @@ namespace MyAssets.Scripts.Manager
         protected override void OnApplicationQuit()
         {
             base.OnApplicationQuit();
-            _networkManager?.StartReceiving();
+            // _networkManager?.StartReceiving();
+            _networkManager?.StopReceiving();
         }
 
         
@@ -85,8 +90,7 @@ namespace MyAssets.Scripts.Manager
             //2. ネットワーク接続の確認
             if (!_networkManager.StartReceiving())
             {
-                // TODO UIにエラー表示を指示
-                // uiManager.ShowError("ネットワークの初期化に失敗しました。");
+                _uiManager.ShowError("ネットワークの初期化に失敗しました。");
                 ChangeState(ExperimentState.Stopped);
                 return;
             }
@@ -110,8 +114,14 @@ namespace MyAssets.Scripts.Manager
         {
             //ブロック開始準備
             ChangeState(ExperimentState.ReadyToStart);
-            // TODO:データロガーを初期化
-            // _dataLogger.Initialize($"Logs/{SubjectID}_Block{CurrentBlock}.csv");
+
+            string filePath = Path.Combine(Application.persistentDataPath, "Logs",
+                $"{SubjectID}_Block{CurrentBlock}.csv");
+            if(!_dataLogger.Initialize(filePath))
+            {
+                EmergencyStop();
+                return;
+            }
             
             //試行開始待ち画面を表示し、ユーザーの入力を待つ
             await _uiManager.ShowWaitForTrialAsync(CurrentBlock, totalBlocks);
@@ -124,7 +134,7 @@ namespace MyAssets.Scripts.Manager
             
             // ブロック終了処理
             // TODO: データロガーのファイルを閉じる
-            // _dataLogger.Close();
+            _dataLogger.Close();
             
             // 最終ブロックでなければ休憩に入る
             if (CurrentBlock < totalBlocks)
@@ -140,17 +150,17 @@ namespace MyAssets.Scripts.Manager
         private async Task RunTrial()
         {
             ChangeState(ExperimentState.TrialRunning);
-            _uiManager.UpdateProgress(CurrentTrial, totalBlocks);
+            _uiManager.UpdateProgress(CurrentTrial, trialsPerBlock);
             
             // TODO: ここでターゲット位置などを決定する
-            Vector2 startPos = Vector2.zero;
-            Vector2 endPos = new Vector2(UnityEngine.Random.Range(-0.5f, 0.5f), UnityEngine.Random.Range(-0.5f, 0.5f));
+            Vector2 startPos = new Vector2(-3f+UnityEngine.Random.Range(-1f,1f),-3f+UnityEngine.Random.Range(-1f,1f));
+            Vector2 endPos = new Vector2(UnityEngine.Random.Range(-4.5f, 4.5f), UnityEngine.Random.Range(-0.5f, 0.5f));
             
             // UIにターゲットを表示させる
             _uiManager.ShowTrialScreen(startPos, endPos);
             
             // Linux側に試行開始を通知
-            await _networkManager.SendCommandAsync($"START_TRIAL;{endPos.x};{endPos.y}");
+            await _networkManager.SendCommandAsync($"START_TRIAL;{startPos.x};{startPos.y};{endPos.x};{endPos.y}");
             
             // Linux側からの試行終了通知を待つ
             // NetworkManagerに終了通知を受信するイベント追加し、待機
@@ -170,16 +180,16 @@ namespace MyAssets.Scripts.Manager
             // このメソッドはネットワークスレッドから呼び出されるので、
             // Unityのオブジェクト（UIなど）を直接操作してはいけない。
 
-            // TODO: データロガーにデータを渡す
-            // if(CurrentState == ExperimentState.TrialRunning) {
-            //     _dataLogger.LogData(data, CurrentState, CurrentTrial);
-            // }
+            // データロガーにデータを渡す
+            if(CurrentState == ExperimentState.TrialRunning) {
+                _dataLogger.LogData(data, CurrentState, CurrentTrial);
+                _uiManager.QueueCursorPosition(new Vector2(data.HandlePosX,data.HandlePosY));
+            }
 
-            // TODO: UIManagerにデータを渡してカーソルを更新させる (スレッドセーフなキュー経由で)
-            // uiManager.QueueCursorPosition(new Vector2(data.HandlePosX, data.HandlePosY));
-
-            // TODO: Linux側から試行終了の合図が送られてきたら、待機中のTaskを完了させる
-            // 例: if(data.IsTrialFinished) { _trialCompletionSource?.TrySetResult(true); }
+            if (CurrentState == ExperimentState.TrialRunning && data.IsTrialFinished == 1)
+            {
+                _trialCompletionSource?.TrySetResult(true);
+            }
         }
         
         /// <summary>
@@ -202,7 +212,8 @@ namespace MyAssets.Scripts.Manager
         private void EmergencyStop()
         {
             if (CurrentState == ExperimentState.Finished || CurrentState == ExperimentState.Stopped) return;
-            _networkManager.StartReceiving();
+            _dataLogger.Close();
+            _networkManager.StopReceiving();
             ChangeState(ExperimentState.Stopped);
         }
     }

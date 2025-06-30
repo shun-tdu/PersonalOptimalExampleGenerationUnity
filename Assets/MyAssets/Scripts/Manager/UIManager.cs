@@ -1,10 +1,13 @@
+using System;
+using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
+
 using UnityEngine;
-using MyAssets.Scripts.Utility;
 using UnityEngine.UI;
 using TMPro;
 
+using MyAssets.Scripts.Utility;
 
 namespace MyAssets.Scripts.Manager
 {
@@ -48,6 +51,10 @@ namespace MyAssets.Scripts.Manager
         // TaskCompletionSourceを使って、UI操作（ボタン押下など）を待機可能にする
         private TaskCompletionSource<string> _subjectIdTcs;
         private TaskCompletionSource<bool> _waitForInputTcs;
+        
+        //ネットワークスレッドからUIスレッドへのカーソル座標を渡すためのキュー
+        private ConcurrentQueue<Vector2> _cursorPositionQueue;
+        
 
         // === Unity Lifecycle Methods ===
         
@@ -59,10 +66,31 @@ namespace MyAssets.Scripts.Manager
             submitIdButton.onClick.AddListener(OnSubmitIDClicked);
             startTrialButton.onClick.AddListener(OnStartTrialClicked);
             startNextBlockButton.onClick.AddListener(OnStartNextBlockClicked);
+            
+            //キューの初期化
+            _cursorPositionQueue = new ConcurrentQueue<Vector2>();
 
             DeactiveAllPanels();
         }
-        
+
+        private void Update()
+        {
+            if (!_cursorPositionQueue.IsEmpty)
+            {
+                Vector2 latestPosition = Vector2.zero;
+
+                while (_cursorPositionQueue.TryDequeue(out var pos))
+                {
+                    latestPosition = pos;
+                }
+
+                if (cursorObject != null)
+                {
+                    cursorObject.transform.position = latestPosition;
+                }
+            }
+        }
+
         /// <summary>
         /// InitialPanelを表示して、被験者IDの入力待ちを行う
         /// </summary>
@@ -82,7 +110,7 @@ namespace MyAssets.Scripts.Manager
         {
             DeactiveAllPanels();
             waitForTrialPanel.SetActive(true);
-            blockInfoText.text = $"ブロック {currentBlock} / {totalBlocks}";
+            blockInfoText.text = $"Block: {currentBlock} / {totalBlocks}";
 
             _waitForInputTcs = new TaskCompletionSource<bool>();
             await _waitForInputTcs.Task;
@@ -90,9 +118,7 @@ namespace MyAssets.Scripts.Manager
         
         /// <summary>
         /// 試行画面を表示
-        /// 現在の試行、ブロック数を表示
-        /// NetWorkManagerからエンドエフェクタ座標、始点終点を受け取ったExperimentManagerからこれらを受け取る
-        /// エンドエフェクタ座標、始点、終点を描写
+        /// エンドエフェクタ座標、Target始点、Target終点を描写
         /// </summary>
         public void ShowTrialScreen(Vector2 startPos, Vector2 endPos)
         {
@@ -100,6 +126,11 @@ namespace MyAssets.Scripts.Manager
             trialPanel.SetActive(true);
             startObject.transform.position = startPos;
             targetObject.transform.position = endPos;
+
+            if (cursorObject != null)
+            {
+                cursorObject.transform.position = startPos;
+            }
         }
 
         /// <summary>
@@ -109,7 +140,7 @@ namespace MyAssets.Scripts.Manager
         {
             if (progressText != null)
             {
-                progressText.text = $"試行{currentTrial}/{trialsPerBlock}";
+                progressText.text = $"Trial {currentTrial}/{trialsPerBlock}";
             }
         }
 
@@ -134,12 +165,12 @@ namespace MyAssets.Scripts.Manager
             float timer = durationSeconds;
             while (timer > 0)
             {
-                restTimerText.text = $"休憩時間: 残り{Mathf.CeilToInt(timer)} 秒";
+                restTimerText.text = $"Rest time: {Mathf.CeilToInt(timer)} sec";
                 await Task.Yield();
                 timer -= Time.deltaTime;
             }
-
-            restTimerText.text = "準備ができたら、次のブロックを開始してください";
+            
+            restTimerText.text = "When you are ready, please start the next block.";
             startNextBlockButton.interactable = true;
 
             _waitForInputTcs = new TaskCompletionSource<bool>();
@@ -164,16 +195,28 @@ namespace MyAssets.Scripts.Manager
             DeactiveAllPanels();
             stoppedPanel.SetActive(true);
         }
-
+        
+        /// <summary>
+        /// 引数に渡されたメッセージを表示する
+        /// </summary>
         public void ShowError(string message)
         {
             DeactiveAllPanels();
             errorPanel.SetActive(true);
             errorText.text = $"Error Message: {message}";
         }
+
+        /// <summary>
+        /// ネットワークスレッドから呼び出すためのスレッドセーフなメソッド
+        /// </summary>
+        /// <param name="position">更新するカーソルの座標</param>
+        public void QueueCursorPosition(Vector2 position)
+        {
+            _cursorPositionQueue.Enqueue(position);
+        }
         
         // ==== Private Methods ====
-
+        
         /// <summary>
         /// 被験者IDを登録する
         /// </summary>
